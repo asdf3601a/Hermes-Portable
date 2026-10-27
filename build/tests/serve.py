@@ -13,15 +13,19 @@ import argparse
 import functools
 import http.server
 import ssl
+import threading
 from pathlib import Path
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     log_file: Path | None = None
+    # Requests run on parallel threads, and an "a"-mode write on Windows is a seek to
+    # the end plus a write: unserialized, concurrent lines overwrite each other.
+    log_lock = threading.Lock()
 
     def log_message(self, format, *args):  # noqa: A002 - stdlib signature
         if self.log_file is not None:
-            with self.log_file.open("a", encoding="utf-8") as stream:
+            with self.log_lock, self.log_file.open("a", encoding="utf-8") as stream:
                 stream.write(f"{self.command} {self.path} {args[1] if len(args) > 1 else ''}\n")
 
 

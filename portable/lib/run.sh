@@ -5,6 +5,8 @@
 #   <PortableGit>\usr\bin\bash.exe --noprofile --norc portable/lib/run.sh hermes --version
 #   Hermes-Shell.cmd hermes chat -q "hello"      (same thing, from cmd)
 
+# start.cmd hands over a System32-only PATH: the bundled tools come first.
+PATH=/usr/bin${PATH:+:$PATH}
 if [ "${HP_SCRUBBED:-}" != 1 ]; then
   # shellcheck source=scrub.sh
   . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scrub.sh"

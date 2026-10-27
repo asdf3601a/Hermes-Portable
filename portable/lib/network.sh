@@ -105,10 +105,18 @@ hp_network_env() {
       export SSL_CERT_FILE="$bundle_w" REQUESTS_CA_BUNDLE="$bundle_w" CURL_CA_BUNDLE="$bundle_w"
       export GIT_SSL_CAINFO="$bundle_w" NODE_EXTRA_CA_CERTS="$(cygpath -w "$ca")"
       npmrc+=("cafile=$bundle_w")
+      # The bundled curl is schannel-only and ignores CURL_CA_BUNDLE: it reads
+      # .curlrc. Inside its quotes a backslash escapes, so the path uses slashes.
+      curlrc+=("cacert = \"$(cygpath -m "$bundle")\"")
       git_keys+=(http.sslBackend) git_values+=(openssl)
     else
       printf 'Hermes Portable: HP_SSL_CA_FILE not found: %s\n' "$HP_SSL_CA_FILE" >&2
     fi
+  fi
+  # Corporate roots often publish no reachable CRL: like git (schannelCheckRevoke),
+  # curl must not fail on an unknown revocation status.
+  if hp_truthy "${HP_SSL_USE_SYSTEM_STORE:-1}" || [ -n "${HP_SSL_CA_FILE:-}" ]; then
+    curlrc+=("ssl-revoke-best-effort")
   fi
   # 3) Last resort: no certificate verification at all.
   if hp_truthy "${HP_SSL_INSECURE:-0}"; then

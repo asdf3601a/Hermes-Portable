@@ -1,0 +1,27 @@
+Hermes Portable: do not create the default userData folder in the real profile.
+
+applyDesktopIdentity() pins userData for nonstable builds (commit builds are:
+appNamePascal "HermesCommit<sha7>") and creates %APPDATA%\<appNamePascal>
+before main.ts applies HERMES_DESKTOP_USER_DATA_DIR. Electron resolves
+appData through the Windows known-folder API, not the APPDATA variable, so
+every portable desktop start left an empty folder in the user's real roaming
+profile. Skip the mkdir when the override is set; the override path is
+created by main.ts.
+
+diff --git a/apps/desktop/electron/product-identity.ts b/apps/desktop/electron/product-identity.ts
+index 8ca5f6cf..6cef9c94 100644
+--- a/apps/desktop/electron/product-identity.ts
++++ b/apps/desktop/electron/product-identity.ts
+@@ -40,7 +40,11 @@ export function applyDesktopIdentity(
+   }
+ 
+   const userData: string = path.join(app.getPath('appData'), identity.appNamePascal)
+-  mkdirSync(userData, { recursive: true })
++  // Hermes Portable: HERMES_DESKTOP_USER_DATA_DIR replaces this path right after
++  // (main.ts); appData is the real roaming profile, so do not create it there.
++  if (!process.env.HERMES_DESKTOP_USER_DATA_DIR) {
++    mkdirSync(userData, { recursive: true })
++  }
+   app.setPath('userData', userData)
+   app.setName(identity.displayName)
+ 

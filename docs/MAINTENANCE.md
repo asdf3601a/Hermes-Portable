@@ -67,6 +67,7 @@ Hermes-TUI.cmd / Hermes-Shell.cmd / Hermes-Desktop.cmd
 | 0004-pm-honor-switched-locks | `pm/environment.py` no_config 模式、`pm/index_config.py` | 已切到鏡像的 `pm/uv.lock` 保留 index 設定（`--locked` 才會通過）；轉送 `UV_SYSTEM_CERTS` |
 | 0005-desktop-windows-target-override | `scripts/bundles/desktop.py`、`scripts/releases/commit_build.py` | `HERMES_DESKTOP_WIN_TARGETS=dir` 產生免安裝資料夾；`HERMES_COMMIT_BUILD_VERSION` 讓 commit build 使用 tag 的版本（穩定版 tag 的 pyproject 版本是 0.0.0） |
 | 0006-pm-strict-bash-and-artifact-mirror | `pm/shell.py`、`pm/artifact_mirror.py` | `HERMES_GIT_BASH_ONLY=1` 時只使用內建 Git Bash；`HERMES_ARTIFACT_MIRROR` 讓 PM 優先從企業鏡像下載工具 |
+| 0007-desktop-no-default-userdata-with-override | `apps/desktop/electron/product-identity.ts` | 設了 `HERMES_DESKTOP_USER_DATA_DIR` 時，不在真正的 `%APPDATA%` 建立 commit build 預設的 userData 資料夾（Electron 以 Known Folder API 取得 appData，不看環境變數） |
 
 原則：patch 要小、要說明清楚，並以環境變數控制（0001 除外），不改上游的預設行為。
 

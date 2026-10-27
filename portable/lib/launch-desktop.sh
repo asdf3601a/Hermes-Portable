@@ -2,6 +2,8 @@
 # Hermes Portable: run Hermes Desktop in the portable environment.
 # Hermes-Desktop.cmd starts this through the bundled mintty with a hidden window.
 
+# start.cmd hands over a System32-only PATH: the bundled tools come first.
+PATH=/usr/bin${PATH:+:$PATH}
 if [ "${HP_SCRUBBED:-}" != 1 ]; then
   # shellcheck source=scrub.sh
   . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scrub.sh"

@@ -45,8 +45,16 @@ PAYLOAD="$DIST/desktop/resources/agent-payload"
 # shellcheck source=/dev/null
 . "$DIST/portable/paths.sh"
 bundled_bash() { printf '%s\n' "$DIST/$HP_GIT_REL/usr/bin/bash.exe"; }
-# prun COMMAND...: run inside the portable environment (bundled bash + scrub + env.sh)
-prun() { (cd "$WORK" && "$(bundled_bash)" --noprofile --norc "$DIST/portable/lib/run.sh" "$@"); }
+# prun COMMAND...: run inside the portable environment (bundled bash + scrub + env.sh),
+# through a native hop (build/lib/spawn.py): started straight from the runner's Git
+# Bash, the bundled bash gets no environment and its caller waits for every background
+# descendant, so a running desktop would block the step forever.
+prun() {
+  # HP_ROOT from build/lib/common.sh names the repository, not the folder under test.
+  (unset HP_ROOT; cd "$WORK" && MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
+    "${PY[@]}" -I "$(cygpath -w "$HP_REPO/build/lib/spawn.py")" \
+    "$(cygpath -w "$(bundled_bash)")" --noprofile --norc "$(cygpath -w "$DIST/portable/lib/run.sh")" "$@")
+}
 set_config() { printf '%s\n' "$@" > "$DIST/config/portable.env"; }
 venv_site() { cygpath -w "$PAYLOAD/venv/Lib/site-packages"; }
 
@@ -57,6 +65,10 @@ if ! skip payload; then
   cp "$DIST/$HP_NODE_DIR_REL/node.exe" "$WORK/node/"  # node must not run from inside the payload it renames
   check "scripts/smoke-payload.sh" env PATH="$WORK/node:$PATH" bash "$UPSTREAM/scripts/smoke-payload.sh" "$PAYLOAD"
 fi
+
+# Everything from here runs through the portable launchers: none of it may write to
+# the real profile (checked in group 8).
+"${PY[@]}" -I "$TESTS/profile_watch.py" mark "$(cygpath -w "$WORK/profile.stamp")"
 
 # --- 2. launchers and environment isolation -----------------------------------------
 log "2. launchers and isolation"
@@ -229,6 +241,21 @@ if ! skip relocate; then
     fail "could not move the folder (files in use?)"
   fi
 fi
+
+# --- 8. nothing written to the real profile -------------------------------------------
+log "8. real profile untouched"
+prun hermes gateway stop --all --yes > /dev/null 2>&1
+"${PY[@]}" -I "$TESTS/profile_watch.py" report "$(cygpath -w "$WORK/profile.stamp")" \
+  --exclude "$(cygpath -w "$BUILD_DIR")" --exclude "$(cygpath -w "$HP_REPO")" \
+  "${USERPROFILE:-}" "${APPDATA:-}" "${LOCALAPPDATA:-}" > "$WORK/profile.log" 2>&1
+if grep -q '^HARD ' "$WORK/profile.log"; then
+  fail "files written to the real profile:"; sed -n 's/^HARD /      /p' "$WORK/profile.log"
+else
+  pass "no files written to %USERPROFILE%, %APPDATA% or %LOCALAPPDATA%"
+fi
+grep -q '^SOFT ' "$WORK/profile.log" \
+  && { soft "Windows-owned profile entries changed meanwhile:"; sed -n 's/^SOFT /      /p' "$WORK/profile.log"; }
+sed -n 's/^TEMP /  info: %TEMP%: /p' "$WORK/profile.log"
 
 echo
 if [ "$failures" -eq 0 ]; then

@@ -1,6 +1,8 @@
 # Hermes Portable interactive shell: bash --rcfile portable/lib/bashrc -i
 # (started by Hermes-TUI.cmd / Hermes-Shell.cmd in a Windows console window).
 
+# start.cmd hands over a System32-only PATH: the bundled tools come first.
+PATH=/usr/bin${PATH:+:$PATH}
 if [ "${HP_SCRUBBED:-}" != 1 ]; then
   # shellcheck source=scrub.sh
   . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scrub.sh"

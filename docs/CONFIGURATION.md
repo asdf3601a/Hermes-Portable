@@ -45,6 +45,16 @@
 
 `hermes-portable env` 可以顯示目前生效的設定，密碼與金鑰會遮蔽。
 
+### 2.1 不會留在 Portable 資料夾內的東西
+
+設定與快取都在 `data\`。CI 的冒煙測試（`build/smoke-test.sh` 第 8 組）會掃描真正的 `%USERPROFILE%`、`%APPDATA%`、`%LOCALAPPDATA%`，只要經由啟動檔執行的任何程式在那裡新增或修改檔案，測試就會失敗。以下例外是刻意的，或屬於 Windows 本身：
+
+- **`%TEMP%`**：保留系統的暫存資料夾（白名單中的 `TEMP`／`TMP`）。工具的暫存檔會留在這裡，但這些不是設定檔。
+- **起始目錄**：Shell、TUI 與 Desktop 預設從你真正的使用者資料夾開始（`HP_START_DIR` 可改）。Hermes 在你指定的專案中工作時當然會寫入那裡。
+- **Windows 自己的紀錄**：登錄檔 hive（`NTUSER.DAT`）、`AppData\Local\Microsoft\` 底下的快取、Direct3D 著色器快取（`AppData\Local\D3DSCache`），以及程式當機時的 `AppData\Local\CrashDumps`。這些由 Windows 寫入，不受環境變數影響。
+
+會改變登錄檔的 `hermes://` 協定註冊已經關閉（見上表）。Electron 以 Windows Known Folder API 取得 `%APPDATA%`，不看環境變數；patch 0007 避免它在真正的 `%APPDATA%` 建立資料夾。
+
 ## 3. `portable.env` 欄位一覽
 
 | 欄位 | 預設 | 說明 | 對應到 |
@@ -59,8 +69,8 @@
 | `HP_HTTP_PROXY` | | HTTP Proxy | `HTTP_PROXY`/`http_proxy`、npm `proxy` |
 | `HP_HTTPS_PROXY` | 同 `HP_HTTP_PROXY` | HTTPS Proxy | `HTTPS_PROXY`/`https_proxy`、npm `https-proxy`、git `http.proxy`、Desktop `--proxy-server` |
 | `HP_NO_PROXY` | | 不走 Proxy 的主機（localhost、127.0.0.1、::1 一律自動加入） | `NO_PROXY`/`no_proxy`、npm `noproxy`、Desktop `--proxy-bypass-list` |
-| `HP_SSL_USE_SYSTEM_STORE` | `1` | 使用 Windows 憑證存放區 | `UV_SYSTEM_CERTS`、`NODE_USE_SYSTEM_CA`、git `http.sslBackend=schannel` |
-| `HP_SSL_CA_FILE` | | 額外的 CA 憑證（PEM），與公開根憑證合併成 `data\cache\ca-bundle.pem` | `SSL_CERT_FILE`、`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`、`GIT_SSL_CAINFO`、npm `cafile`、`NODE_EXTRA_CA_CERTS` |
+| `HP_SSL_USE_SYSTEM_STORE` | `1` | 使用 Windows 憑證存放區 | `UV_SYSTEM_CERTS`、`NODE_USE_SYSTEM_CA`、git `http.sslBackend=schannel`（不檢查撤銷）、curl `ssl-revoke-best-effort` |
+| `HP_SSL_CA_FILE` | | 額外的 CA 憑證（PEM），與公開根憑證合併成 `data\cache\ca-bundle.pem` | `SSL_CERT_FILE`、`REQUESTS_CA_BUNDLE`、`CURL_CA_BUNDLE`、`~/.curlrc` 的 `cacert`（內建 curl 只認這個）、`GIT_SSL_CAINFO`、npm `cafile`、`NODE_EXTRA_CA_CERTS` |
 | `HP_SSL_INSECURE` | `0` | **最後手段**：完全不驗證 TLS 憑證（第 6 節） | 見第 6 節 |
 | `HP_SSL_INSECURE_HOSTS` | | 額外加入 uv 不驗證清單的主機 | `UV_INSECURE_HOST` |
 | `HP_ENV_PASSTHROUGH` | | 允許從主機繼承的變數名稱（可用萬用字元，例如 `AZURE_*`） | |

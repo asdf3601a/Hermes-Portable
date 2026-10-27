@@ -4,8 +4,10 @@ scripts/bundles/desktop.py hard-codes the MSIX target on win32. Read the
 Windows electron-builder targets from HERMES_DESKTOP_WIN_TARGETS (space or
 comma separated, default "msix"); Hermes Portable passes "dir", producing
 apps/desktop/release/win-unpacked with resources/agent-payload inside.
-apps/desktop/scripts/prepare-packaging-tools.mjs already accepts dir/msix/zip
-for win32.
+"dir" is handed to electron-builder as the --dir flag: prepare records only
+the default msix format in prepared.json, and run-electron-builder.mjs
+rejects a positional format that was not prepared ("Argument is not admitted
+by prepared packaging: dir") while always admitting --dir.
 
 Stable release tags keep project.version = "0.0.0" (the release tag supplies
 the version), so a commit build of a stable tag would identify as 0.0.0.
@@ -13,16 +15,19 @@ scripts/releases/commit_build.version_at() takes HERMES_COMMIT_BUILD_VERSION
 in that case (build/bundle.conf UPSTREAM_TAG).
 
 diff --git a/scripts/bundles/desktop.py b/scripts/bundles/desktop.py
-index c7104216..e101c74d 100644
+index c7104216..7c52d8e7 100644
 --- a/scripts/bundles/desktop.py
 +++ b/scripts/bundles/desktop.py
-@@ -96,7 +96,9 @@ def _build_prepared(prepared, builder_args: list[str], variant: str | None) -> N
+@@ -96,7 +96,12 @@ def _build_prepared(prepared, builder_args: list[str], variant: str | None) -> N
      if request.release_epoch is not None:
          env["HERMES_RELEASE_EPOCH"] = str(request.release_epoch)
      desktop = repo / "apps/desktop"
 -    targets = {"win32": ["--win", "msix"], "darwin": ["--mac", "dmg", "zip"], "linux": ["--linux", "AppImage"]}[sys.platform]
 +    # Hermes Portable packages an unpacked folder: HERMES_DESKTOP_WIN_TARGETS="dir".
++    # "dir" goes to electron-builder as --dir: prepared packaging admits a
++    # positional format only if prepare recorded it (msix), but always admits --dir.
 +    win_targets = os.environ.get("HERMES_DESKTOP_WIN_TARGETS", "msix").replace(",", " ").split() or ["msix"]
++    win_targets = ["--dir" if target == "dir" else target for target in win_targets]
 +    targets = {"win32": ["--win", *win_targets], "darwin": ["--mac", "dmg", "zip"], "linux": ["--linux", "AppImage"]}[sys.platform]
      package_args = ["--prepared", str(prepared.packager), "--native-deps", str(prepared.native),
                      *targets, f"-c.extraMetadata.version={request.version}"]

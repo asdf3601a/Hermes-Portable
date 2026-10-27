@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# Hermes Portable smoke tests on an assembled folder. The folder itself is not
-# touched: tests run on a copy, which is then moved to a path with spaces and
-# CJK characters for the relocation round.
+# Hermes Portable smoke tests on an assembled folder. By default the folder itself
+# is not touched: tests run on a copy, which is then moved to a path with spaces
+# and CJK characters for the relocation round.
 #
 #   build/smoke-test.sh DIST_FOLDER
 #
 # HP_SMOKE_SKIP="desktop tls ..." skips groups; HP_SMOKE_LONGPATHS_OFF=1 (CI)
 # disables Windows long-path support for the relocation round.
+# HP_SMOKE_IN_PLACE=1 tests DIST_FOLDER itself (an extracted release, say): no
+# copy and no relocation round; config\portable.env and the lock files are put
+# back afterwards, but data\ keeps what the tests ran.
 # shellcheck disable=SC2015,SC2016 # pass/fail always succeed; single-quoted scripts run in the portable shell
 set -uo pipefail
 # shellcheck source=lib/common.sh
@@ -17,6 +20,7 @@ WORK="$BUILD_DIR/smoke"
 TESTS="$HP_REPO/build/tests"
 failures=0
 pids=()
+IN_PLACE=${HP_SMOKE_IN_PLACE:-0}
 
 pass() { printf '  \033[32mPASS\033[0m %s\n' "$*"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$*"; failures=$((failures + 1)); }
@@ -27,19 +31,50 @@ check() {  # check NAME COMMAND...: PASS when the command succeeds
   if "$@" > "$WORK/last.log" 2>&1; then pass "$name"; else fail "$name"; sed 's/^/      /' "$WORK/last.log" | tail -n 25; fi
 }
 
+# leftovers: Windows processes still running from the folder under test (PID, name).
+leftovers() {
+  [ -n "${DIST:-}" ] && [ -d "$DIST" ] || return 0
+  HP_SMOKE_ROOT="$(cygpath -w "$DIST")\\" powershell.exe -NoProfile -NonInteractive -Command '
+    Get-CimInstance Win32_Process |
+      Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($env:HP_SMOKE_ROOT, "OrdinalIgnoreCase") } |
+      ForEach-Object { "{0} {1}" -f $_.ProcessId, $_.Name }' < /dev/null 2>/dev/null | tr -d '\r'
+}
+kill_leftovers() {
+  local pid
+  while read -r pid _; do
+    [ -n "$pid" ] && taskkill.exe //PID "$pid" //T //F > /dev/null 2>&1
+  done < <(leftovers)
+  return 0
+}
+
 cleanup() {
   local pid
   for pid in "${pids[@]}"; do kill "$pid" 2>/dev/null; done
   [ -n "${DIST:-}" ] && [ -d "$DIST" ] && prun hermes gateway stop --all --yes > /dev/null 2>&1
+  kill_leftovers  # an interrupted run must not leave gateways or Python workers behind
+  if [ "$IN_PLACE" = 1 ] && [ -n "${DIST:-}" ]; then
+    if [ -f "$WORK/portable.env.saved" ]; then
+      mv -f "$WORK/portable.env.saved" "$DIST/config/portable.env"
+    else
+      rm -f "$DIST/config/portable.env"
+    fi
+  fi
   return 0
 }
 trap cleanup EXIT
 
 rm -rf "$WORK"
-mkdir -p "$WORK/plain"
-log "copy $(basename "$SRC") for testing"
-cp -a "$SRC" "$WORK/plain/"
-DIST="$WORK/plain/$(basename "$SRC")"
+mkdir -p "$WORK"
+if [ "$IN_PLACE" = 1 ]; then
+  log "testing $SRC in place"
+  DIST=$SRC
+  [ -f "$DIST/config/portable.env" ] && cp -p "$DIST/config/portable.env" "$WORK/portable.env.saved"
+else
+  mkdir -p "$WORK/plain"
+  log "copy $(basename "$SRC") for testing"
+  cp -a "$SRC" "$WORK/plain/"
+  DIST="$WORK/plain/$(basename "$SRC")"
+fi
 PAYLOAD="$DIST/desktop/resources/agent-payload"
 
 # shellcheck source=/dev/null
@@ -86,10 +121,18 @@ dist_unix=$(cygpath -u "$DIST")
 tools=$(prun bash -c 'for t in hermes.exe node npm uv git rg ffmpeg; do printf "%s=%s\n" "$t" "$(command -v "$t")"; done')
 foreign=$(printf '%s\n' "$tools" | grep -v "=$dist_unix/" || true)
 [ -z "$foreign" ] && pass "bundled tools resolve inside the folder" || fail "tools from outside: $foreign"
+# UV_PYTHON acts as --python, which `uv python find` ignores: ask uv run instead.
+uv_python=$(prun bash -c 'cd "$HP_DATA_U" && uv run --no-project python -c "import sys; print(sys.executable)"' 2>&1 | tail -n1)
+[[ $(cygpath -u "$uv_python" 2>/dev/null) == "$dist_unix"/* ]] && pass "uv uses the bundled Python" \
+  || fail "uv run python -> $uv_python"
 staged_bash=$(prun bash -c 'cd "$HP_PAYLOAD_U/hermes-agent" && "$HP_PYTHON_U" -I -c "import sys; sys.path[:0] = [\".\", sys.argv[1]]; import pm.shell; print(pm.shell.bash())" "$(cygpath -w "$HP_PAYLOAD_U/venv/Lib/site-packages")"' 2>&1 | tail -n1)
 [[ $(cygpath -u "$staged_bash" 2>/dev/null) == "$dist_unix"/* ]] && pass "Hermes uses the bundled Git Bash" \
   || fail "pm.shell.bash() -> $staged_bash"
 check "hermes tools list" prun hermes tools list
+# A fresh data\hermes is seeded like an installed one: without config.yaml the model is
+# empty and every new session's stored policy is refused ("storage_unavailable").
+check "fresh HERMES_HOME has config.yaml, .env and a model" prun bash -c \
+  'h=$(cygpath -u "$HERMES_HOME"); test -f "$h/config.yaml" && test -f "$h/.env" && hermes config get model.default | grep -q .'
 if prun hermes pm install cua-driver > "$WORK/cua.log" 2>&1; then
   fail "cua-driver install was not refused"
 elif grep -q "disabled in Hermes Portable" "$WORK/cua.log"; then
@@ -112,6 +155,7 @@ digest() {
 }
 lock="$PAYLOAD/hermes-agent/uv.lock"
 had_backup=$([ -f "$lock.upstream" ] && echo 1 || echo 0)
+backups_before=$(find "$PAYLOAD/hermes-agent" -name '*.upstream' -not -path '*/node_modules/*' | sort)
 before=$(digest)
 check "sources pypi use-nexus (rewrite)" prun hermes-portable sources pypi use-nexus --mode rewrite --no-probe \
   --index-url https://nexus.invalid/repository/pypi-proxy/simple
@@ -123,6 +167,11 @@ check "hermes --version on switched locks" prun hermes --version
 check "sources pypi use-original" prun hermes-portable sources pypi use-original
 if [ "$had_backup" = 0 ]; then
   cmp -s "$lock" "$lock.upstream" && pass "original lock restored byte for byte" || fail "restored lock differs"
+fi
+if [ "$IN_PLACE" = 1 ]; then  # the folder under test keeps no backups it did not have
+  comm -13 <(printf '%s\n' "$backups_before") \
+    <(find "$PAYLOAD/hermes-agent" -name '*.upstream' -not -path '*/node_modules/*' | sort) \
+    | while IFS= read -r backup; do [ -n "$backup" ] && rm -f "$backup"; done
 fi
 
 # --- 4. Nexus-layout mirror end to end (fixtures) -----------------------------------
@@ -218,7 +267,9 @@ if ! skip desktop; then
 fi
 
 # --- 7. relocation to a path with spaces and CJK characters -----------------------------
-if ! skip relocate; then
+if [ "$IN_PLACE" = 1 ] && ! skip relocate; then
+  log "7. relocation: skipped (HP_SMOKE_IN_PLACE does not move the folder under test)"
+elif ! skip relocate; then
   log "7. relocation"
   prun hermes gateway stop --all --yes > /dev/null 2>&1
   if [ -n "${HP_SMOKE_LONGPATHS_OFF:-}" ]; then
@@ -276,6 +327,24 @@ fi
 grep -q '^SOFT ' "$WORK/profile.log" \
   && { soft "Windows-owned profile entries changed meanwhile:"; sed -n 's/^SOFT /      /p' "$WORK/profile.log"; }
 sed -n 's/^TEMP /  info: %TEMP%: /p' "$WORK/profile.log"
+
+# --- 9. nothing left running ---------------------------------------------------------------
+# After `hermes gateway stop`, no gateway, Python worker or desktop process may stay alive
+# in the folder (it would keep files locked). Survivors are reported, then killed.
+log "9. no processes left running"
+left=$(leftovers)
+for _ in $(seq 1 10); do  # a stopping gateway may need a moment to exit
+  [ -z "$left" ] && break
+  sleep 1
+  left=$(leftovers)
+done
+if [ -z "$left" ]; then
+  pass "no process left running from the folder"
+else
+  fail "processes still running from the folder after gateway stop:"
+  while IFS= read -r line; do printf '      %s\n' "$line"; done <<< "$left"
+  kill_leftovers
+fi
 
 echo
 if [ "$failures" -eq 0 ]; then

@@ -38,6 +38,15 @@ export HF_HOME="$(cygpath -w "$HP_DATA_U/cache/hf")"
 # Node keeps its module compile cache in the system %TEMP% unless told otherwise.
 export NODE_COMPILE_CACHE="$(cygpath -w "$HP_DATA_U/cache/node-compile")"
 export GIT_CONFIG_GLOBAL="$(cygpath -w "$HP_DATA_U/home/.gitconfig")"
+# A fresh HERMES_HOME starts from the shipped templates, as the installers prepare it
+# (install.ps1; hermes_cli.config.seed_config_file). Without config.yaml no model is
+# set, and every new session's stored policy is refused ("storage_unavailable").
+for hp_seed in config.yaml:cli-config.yaml.example .env:.env.example; do
+  if [ ! -e "$HP_DATA_U/hermes/${hp_seed%%:*}" ] && [ -f "$HP_PAYLOAD_U/hermes-agent/${hp_seed#*:}" ]; then
+    cp "$HP_PAYLOAD_U/hermes-agent/${hp_seed#*:}" "$HP_DATA_U/hermes/${hp_seed%%:*}"
+  fi
+done
+unset hp_seed
 if [ ! -f "$HP_DATA_U/home/.gitconfig" ]; then
   printf '[core]\n\tlongpaths = true\n' > "$HP_DATA_U/home/.gitconfig"
 fi
@@ -84,6 +93,10 @@ if hp_truthy "${HP_INHERIT_PATH:-0}" && [ -n "${HP_REAL_PATH:-}" ]; then
 fi
 PATH=$(IFS=:; printf '%s' "${hp_path[*]}")
 export PATH
+# uv's own discovery would take a host Python (Windows registry) or download one from
+# GitHub; default it to the bundled interpreter, as PM does for its own uv calls.
+# A project that asks for another version still gets one (into data\, never the host's).
+[ -n "${UV_PYTHON:-}" ] || export UV_PYTHON="$(cygpath -w "$HP_PYTHON_U")"
 unset hp_path hp_sysroot rel
 
 # --- network: proxy, Nexus sources, TLS ------------------------------------------------

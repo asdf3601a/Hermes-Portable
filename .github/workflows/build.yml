@@ -1,0 +1,234 @@
+name: Build Hermes Portable
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*-p*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner label (a Windows x64 self-hosted runner inside the corporate network for Nexus builds)
+        default: windows-2025
+      pypi_index_url:
+        description: Build from this PyPI mirror (Nexus simple index). Empty = PyPI. Credentials belong in the HP_PYPI_INDEX_URL secret.
+        default: ''
+      npm_registry:
+        description: Build from this npm mirror (Nexus). Empty = registry.npmjs.org.
+        default: ''
+      pypi_lock_mode:
+        description: How uv.lock is switched to the PyPI mirror
+        type: choice
+        options: [discover, rewrite]
+        default: discover
+      artifact_mirror:
+        description: Raw proxy of https://hermes-assets.nousresearch.com for PM binaries (closed networks)
+        default: ''
+      electron_mirror:
+        description: Raw proxy of https://github.com/electron/electron/releases/download/ (closed networks)
+        default: ''
+      proxy:
+        description: HTTP(S) proxy for the build, e.g. http://proxy.example.com:8080
+        default: ''
+      no_proxy:
+        description: Hosts that bypass the proxy
+        default: ''
+      ssl_insecure:
+        description: Disable TLS verification during the build (last resort)
+        type: boolean
+        default: false
+      smoke_skip:
+        description: Smoke test groups to skip (payload mirror tls desktop relocate)
+        default: ''
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  checks:
+    name: Static checks + source-switch tests
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - name: Enable long paths
+        run: git config --global core.longpaths true
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: astral-sh/setup-uv@v6
+      - name: Patches apply to the pinned upstream
+        run: git -C upstream apply --check "$PWD"/patches/*.patch
+      - name: shellcheck
+        run: |
+          uvx --from shellcheck-py shellcheck -x -s bash -e SC1091,SC2155,SC2317 \
+            build/*.sh build/lib/common.sh build/tests/*.sh \
+            portable/lib/*.sh portable/lib/bashrc portable/bin/hermes-portable
+      - name: Launchers are ASCII with CRLF
+        run: |
+          for f in portable/*.cmd portable/lib/*.cmd; do
+            ! LC_ALL=C grep -q -P '[^\x00-\x7F]' "$f" || { echo "::error file=$f::non-ASCII .cmd"; exit 1; }
+            file "$f" | grep -q CRLF || { echo "::error file=$f::.cmd needs CRLF"; exit 1; }
+          done
+      - name: Source switch + TLS integration tests (local Nexus-layout mirror)
+        run: python -I build/tests/test_sources.py -v
+      - name: Build patch step in Nexus mode (locks switched, clean commit)
+        env:
+          HP_BUILD_DIR: ${{ runner.temp }}\hp-patch
+          HP_PYPI_INDEX_URL: https://nexus.invalid/repository/pypi-proxy/simple
+          HP_NPM_REGISTRY: https://nexus.invalid/repository/npm-proxy/
+          HP_PYPI_LOCK_MODE: rewrite
+          HP_SOURCES_NO_PROBE: '1'
+        run: |
+          bash build/build.sh patch
+          grep -q "^PYPI_SOURCE='https://nexus.invalid" "$HP_BUILD_DIR/state.env"
+          ! grep -q 'files.pythonhosted.org' upstream/uv.lock
+          ! grep -rq '"resolved": "https://registry.npmjs.org' --include=package-lock.json upstream
+          test -z "$(git -C upstream status --porcelain --untracked-files=all)"
+
+  build:
+    name: Build win-x64 zip
+    needs: checks
+    runs-on: ${{ inputs.runner || 'windows-2025' }}
+    timeout-minutes: 330
+    env:
+      # Inputs win; repository secrets/variables supply defaults (credentialed URLs -> secrets).
+      HP_PYPI_INDEX_URL: ${{ inputs.pypi_index_url || secrets.HP_PYPI_INDEX_URL || vars.HP_PYPI_INDEX_URL }}
+      HP_NPM_REGISTRY: ${{ inputs.npm_registry || secrets.HP_NPM_REGISTRY || vars.HP_NPM_REGISTRY }}
+      HP_PYPI_LOCK_MODE: ${{ inputs.pypi_lock_mode || vars.HP_PYPI_LOCK_MODE }}
+      HP_PYPI_FILES_TEMPLATE: ${{ vars.HP_PYPI_FILES_TEMPLATE }}
+      HP_ARTIFACT_MIRROR: ${{ inputs.artifact_mirror || vars.HP_ARTIFACT_MIRROR }}
+      HP_ELECTRON_MIRROR: ${{ inputs.electron_mirror || vars.HP_ELECTRON_MIRROR }}
+      HP_ELECTRON_BUILDER_BINARIES_MIRROR: ${{ vars.HP_ELECTRON_BUILDER_BINARIES_MIRROR }}
+      HP_HTTP_PROXY: ${{ inputs.proxy || vars.HP_HTTP_PROXY }}
+      HP_HTTPS_PROXY: ${{ inputs.proxy || vars.HP_HTTPS_PROXY }}
+      HP_NO_PROXY: ${{ inputs.no_proxy || vars.HP_NO_PROXY }}
+      HP_SSL_INSECURE: ${{ inputs.ssl_insecure && '1' || vars.HP_SSL_INSECURE }}
+      HP_SMOKE_SKIP: ${{ inputs.smoke_skip }}
+      HP_SMOKE_LONGPATHS_OFF: '1'
+    steps:
+      - name: Build locations
+        run: |
+          {
+            echo "HP_BUILD_DIR=$RUNNER_TEMP\\hp"
+            echo "HP_DESKTOP_WORK=$RUNNER_TEMP\\desktop-job"
+            echo "HP_DESKTOP_CACHE=$GITHUB_WORKSPACE\\.cache\\desktop-inputs"
+            echo "ELECTRON_BUILDER_CACHE=$GITHUB_WORKSPACE\\.cache\\electron-builder"
+          } >> "$GITHUB_ENV"
+
+      - name: Keep Defender away from build paths
+        run: |
+          powershell.exe -NoProfile -Command '
+            foreach ($p in @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP)) {
+              try { Add-MpPreference -ExclusionPath $p } catch { Write-Host "exclusion not applied for $p" }
+            }
+            try { Set-MpPreference -DisableRealtimeMonitoring $true } catch { Write-Host "realtime monitoring unchanged" }'
+          git config --global core.longpaths true
+          df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP" || true
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Apply patches (and switch package sources in Nexus mode)
+        run: bash build/build.sh patch
+
+      - name: Restore desktop dependency inputs
+        id: build-cache
+        uses: ./upstream/.github/actions/desktop-build-cache
+        with:
+          phase: restore
+          source: ${{ github.workspace }}/upstream
+          work: ${{ env.HP_DESKTOP_WORK }}
+          cache: ${{ env.HP_DESKTOP_CACHE }}
+          producer: desktop
+
+      - name: Prepare desktop + agent payload dependencies
+        id: prepare
+        run: bash build/build.sh prepare
+
+      - name: Save dependency inputs
+        if: ${{ !cancelled() && steps.prepare.outcome == 'success' && github.event_name != 'pull_request' }}
+        uses: ./upstream/.github/actions/desktop-build-cache
+        with:
+          phase: save
+          source: ${{ github.workspace }}/upstream
+          work: ${{ env.HP_DESKTOP_WORK }}
+          cache: ${{ env.HP_DESKTOP_CACHE }}
+          producer: desktop
+          key: ${{ steps.build-cache.outputs.cache-key }}
+
+      - name: Package Hermes Desktop (unpacked) with the agent payload
+        run: bash build/build.sh package
+
+      - name: Assemble the portable folder
+        run: bash build/build.sh assemble
+
+      - name: Smoke tests
+        run: bash build/build.sh smoke
+
+      - name: Zip
+        run: bash build/build.sh zip
+
+      - name: Check the tag matches the build
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^portable=//p' "$HP_BUILD_DIR/dist/VERSION.txt")
+          [ "v$version" = "$GITHUB_REF_NAME" ] \
+            || { echo "::error::tag $GITHUB_REF_NAME does not match build v$version (build/bundle.conf)"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hermes-portable-win-x64
+          path: |
+            ${{ env.HP_BUILD_DIR }}/dist/*.zip
+            ${{ env.HP_BUILD_DIR }}/dist/*.zip.sha256
+            ${{ env.HP_BUILD_DIR }}/dist/VERSION.txt
+          compression-level: 0
+          retention-days: 14
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hermes-portable-win-x64
+          path: dist
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd dist
+          {
+            echo "Hermes Agent Portable for Windows x64."
+            echo
+            echo "Extract to a short path (e.g. C:\\HP) and start Hermes-TUI.cmd or Hermes-Desktop.cmd."
+            echo "See docs/INSTALL.md inside the zip."
+            echo
+            echo '```'
+            cat VERSION.txt
+            echo '```'
+          } > notes.md
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --title "Hermes Portable $GITHUB_REF_NAME" --notes-file notes.md \
+            ./*.zip ./*.zip.sha256 VERSION.txt

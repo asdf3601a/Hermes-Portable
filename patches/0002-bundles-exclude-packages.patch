@@ -1,0 +1,40 @@
+Hermes Portable: let a distribution exclude optional PM packages from the payload.
+
+HERMES_BUNDLE_EXCLUDE takes comma-separated fnmatch patterns (for example
+"llamacpp-*,gh,bws"). Matching optional packages are left out of the staged
+tool store; PM can still lazy-install them later into the writable store.
+Required packages (python and every non-optional package such as node, npm,
+ripgrep, ffmpeg, uv) raise instead of being dropped. The variable survives
+the desktop preparation bootstrap (scripts/bundles/desktop_toolchain.py
+_INSTALL_ENV does not list it), so the worker's prepare_native sees it.
+
+diff --git a/scripts/bundles/native.py b/scripts/bundles/native.py
+index aae96cf0..59028e33 100644
+--- a/scripts/bundles/native.py
++++ b/scripts/bundles/native.py
+@@ -17,11 +17,24 @@ from pm.lock import Facts
+ from pm.registry import get_package, walk
+ from pm.store import current_target
+ 
++def _bundle_excluded(name: str) -> bool:
++    """HERMES_BUNDLE_EXCLUDE: comma-separated fnmatch patterns of optional
++    packages a distribution leaves out of its payload (lazy-installable later)."""
++    from fnmatch import fnmatchcase
++
++    patterns = [p.strip() for p in os.environ.get("HERMES_BUNDLE_EXCLUDE", "").split(",") if p.strip()]
++    if not any(fnmatchcase(name, pattern) for pattern in patterns):
++        return False
++    if name == "python" or not get_package(name).optional:
++        raise ValueError(f"HERMES_BUNDLE_EXCLUDE cannot drop required package {name!r}")
++    return True
++
++
+ def _bundle_package_names() -> list[str]:
+     names = [
+         n
+         for n in _lockfile().names()
+-        if not get_package(n).internal or n == "uv"
++        if (not get_package(n).internal or n == "uv") and not _bundle_excluded(n)
+     ]
+     if "python" not in names:
+         names.append("python")

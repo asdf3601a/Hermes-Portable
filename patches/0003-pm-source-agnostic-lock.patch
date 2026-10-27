@@ -1,0 +1,52 @@
+Hermes Portable: venv stamp ignores the lock's download source.
+
+Hermes Portable switches uv.lock between PyPI and a mirror (Nexus) by
+rewriting only `registry = ...` / `url = ...` values (hp_sources.py); package
+names, versions and hashes are unchanged, so the environment built from
+either lock is identical. _uv_lock_digest() now hashes the lock with
+url/registry/upload-time/size values and exclude-newer options removed, so
+switching sources does not invalidate the sealed payload venv (no full
+re-sync after `hermes-portable sources pypi use-nexus`).
+
+diff --git a/pm/packages.py b/pm/packages.py
+index de302d9d..6f981519 100644
+--- a/pm/packages.py
++++ b/pm/packages.py
+@@ -285,9 +285,26 @@ class Python(_BionicDebArm, BinaryPackage, DebPackage):
+         return pbs_versions(minor, _RUST_TRIPLE[target])
+ 
+ 
++def _uv_lock_identity(data: bytes) -> bytes:
++    """uv.lock with its download-source fields removed.
++
++    Hermes Portable switches a lock between PyPI and a mirror (Nexus) by
++    rewriting only registry/url values; names, versions and hashes stay put.
++    The venv built from either lock is identical, so the stamp must be too.
++    """
++    import re
++
++    data = re.sub(rb'\b(?:url|registry|upload-time|size) = (?:"[^"]*"|[0-9]+)', b"", data)
++    data = re.sub(rb"(?m)^exclude-newer.*\n", b"", data)
++    data = re.sub(rb"\{[\s,]*", b"{ ", data)
++    data = re.sub(rb"[\s,]*\}", b" }", data)
++    return re.sub(rb",(?:\s*,)+", b",", data)
++
++
+ def _uv_lock_digest(path: Path) -> bytes:
+-    """sha256 of uv.lock, cached on (mtime_ns, size) — check() runs at
+-    every startup and uv.lock is megabyte-class."""
++    """sha256 of uv.lock's package identity (see _uv_lock_identity), cached
++    on (mtime_ns, size) — check() runs at every startup and uv.lock is
++    megabyte-class."""
+     import hashlib
+ 
+     stat = path.stat()
+@@ -295,7 +312,7 @@ def _uv_lock_digest(path: Path) -> bytes:
+     cached = _uv_lock_digest_cache.get(path)
+     if cached and cached[0] == key:
+         return cached[1]
+-    digest = hashlib.sha256(path.read_bytes()).digest()
++    digest = hashlib.sha256(_uv_lock_identity(path.read_bytes())).digest()
+     _uv_lock_digest_cache[path] = (key, digest)
+     return digest
+ 

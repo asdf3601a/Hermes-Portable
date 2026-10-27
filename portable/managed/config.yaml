@@ -1,0 +1,21 @@
+# Hermes Portable enforced settings (managed scope: HERMES_MANAGED_DIR).
+# Deep-merged over every profile's config.yaml; users cannot change these keys.
+# See docs/CONFIGURATION.md.
+
+agent:
+  # Computer use needs cua-driver, which this distribution does not ship.
+  disabled_toolsets:
+    - computer_use
+
+updates:
+  # Updates come from new Hermes Portable releases, not `hermes update`.
+  check: false
+  refresh_cua_driver: false
+
+computer_use:
+  autostart: false
+
+telemetry:
+  shared_metrics:
+    enabled: false
+    send: false

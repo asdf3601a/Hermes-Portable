@@ -1,0 +1,13 @@
+# Fixture for the source-switch smoke test: a tiny locked project whose wheels
+# are served from a local Nexus-layout mirror (build/tests/mkmirror.py).
+[project]
+name = "hp-mirror-fixture"
+version = "0.0.0"
+requires-python = ">=3.11"
+dependencies = [
+  "six==1.17.0",
+  "idna==3.10",
+]
+
+[tool.uv]
+package = false

@@ -1,0 +1,56 @@
+# Hermes Portable: inherited environment variables that survive the scrub.
+# One case-insensitive glob per line. Everything else from the host (API keys,
+# PYTHONPATH, NODE_OPTIONS, UV_*, npm_config_*, *_PROXY, HERMES_*, ...) is
+# dropped before bash starts. Add names per installation with
+# HP_ENV_PASSTHROUGH in config/portable.env instead of editing this file.
+
+# Windows essentials
+SYSTEMROOT
+WINDIR
+SYSTEMDRIVE
+COMSPEC
+PATHEXT
+TEMP
+TMP
+OS
+USERNAME
+USERDOMAIN
+USERDOMAIN_ROAMINGPROFILE
+COMPUTERNAME
+LOGONSERVER
+SESSIONNAME
+NUMBER_OF_PROCESSORS
+PROCESSOR_ARCHITECTURE
+PROCESSOR_IDENTIFIER
+PROCESSOR_LEVEL
+PROCESSOR_REVISION
+PROGRAMDATA
+PROGRAMFILES
+PROGRAMFILES(X86)
+PROGRAMW6432
+COMMONPROGRAMFILES
+COMMONPROGRAMFILES(X86)
+COMMONPROGRAMW6432
+ALLUSERSPROFILE
+PUBLIC
+DRIVERDATA
+
+# Terminal identity (Windows Terminal / conhost)
+TERM
+COLORTERM
+WT_SESSION
+WT_PROFILE_ID
+
+# Git Bash session
+MSYSTEM
+CHERE_INVOKING
+
+# Set by the launchers (portable/lib/start.cmd)
+HP_ROOT
+HP_MODE
+HP_AUTORUN
+HP_LAUNCH_CWD
+HP_REAL_USERPROFILE
+HP_REAL_APPDATA
+HP_REAL_LOCALAPPDATA
+HP_REAL_PATH

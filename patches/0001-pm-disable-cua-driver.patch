@@ -1,0 +1,26 @@
+Hermes Portable: disable cua-driver unconditionally.
+
+CuaDriver.missing_reason() always reports the package as unavailable. That
+single PM gate refuses bundle staging (scripts/bundles/native.py), default
+and update-time installs (pm/defaults.py, hermes_cli/update_cmd_maint.py),
+explicit `hermes computer-use install` / `hermes pm install cua-driver`
+(pm/install.py) and the runtime ensure (pm/client.py). `pm doctor` reports
+it as n/a. Never run `hermes pm lock` from a tree carrying this patch: the
+lock refresh would drop cua-driver's pins.
+
+diff --git a/pm/packages.py b/pm/packages.py
+index de302d9d..d0cb796b 100644
+--- a/pm/packages.py
++++ b/pm/packages.py
+@@ -946,6 +946,11 @@ class CuaDriver(BinaryPackage):
+     def latest_versions(self, target: str, locked=None) -> list[str]:
+         return github_release_tags("trycua/cua", strip_prefix="cua-driver-rs-v")
+ 
++    def missing_reason(self, target: str) -> Optional[str]:
++        # Hermes Portable ships without computer use: one gate refuses bundle
++        # staging, default/update installs, explicit installs and runtime ensure.
++        return "cua-driver is disabled in Hermes Portable"
++
+     def stage(self, store: Store, staged: Path, version: str, target: str) -> None:
+         flatten_single_dir(staged)
+         sdk = staged / "sdk"

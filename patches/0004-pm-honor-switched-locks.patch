@@ -1,0 +1,60 @@
+Hermes Portable: keep mirror index settings for locks switched to a mirror.
+
+PM isolates the pinned runtime builder (pm/runtime_stage.py, no_config=True,
+`uv sync --locked`) from ambient index configuration because re-resolving an
+official-index lock against a mirror trips `--locked` (#124418). Once Hermes
+Portable has switched a lock's registry sources to Nexus, the opposite holds:
+the lock only resolves through that mirror, and stripping UV_DEFAULT_INDEX
+makes `--locked` compare it against PyPI and fail. Keep index settings when
+the lock in the working directory no longer names https://pypi.org/simple;
+unswitched locks keep upstream behaviour.
+
+Also forward UV_SYSTEM_CERTS, the current name of UV_NATIVE_TLS (uv warns
+that the old name is deprecated), so the Windows certificate store reaches
+PM's uv children without the deprecation warning.
+
+diff --git a/pm/environment.py b/pm/environment.py
+index 35e2b655..4b8f6b9f 100644
+--- a/pm/environment.py
++++ b/pm/environment.py
+@@ -230,6 +230,18 @@ def _run_streaming(command: list[str], *, cwd: Path, env: dict[str, str],
+     return subprocess.CompletedProcess(command, code, "", tail)
+ 
+ 
++def _lock_switched_to_mirror(lock: Path) -> bool:
++    """True when *lock*'s registry sources were switched off PyPI (Hermes
++    Portable `sources pypi use-nexus`). Such a lock only resolves through the
++    configured mirror, so no_config isolation must keep the index settings:
++    `--locked` then matches the lock's registry against the same index."""
++    try:
++        text = lock.read_text(encoding="utf-8")
++    except OSError:
++        return False
++    return 'source = { registry = "' in text and 'registry = "https://pypi.org/simple"' not in text
++
++
+ def _base_environment(env: Mapping[str, str] | None = None) -> dict[str, str]:
+     """Ambient UV settings never select the project, interpreter or cache.
+ 
+@@ -309,7 +321,7 @@ class PythonEnvironment:
+         # Explicit index credentials survive, but cannot redirect the project,
+         # interpreter or cache selected by the operation.
+         env = _base_environment(self.env)
+-        if self.no_config:
++        if self.no_config and not _lock_switched_to_mirror(cwd / "uv.lock"):
+             # --no-config only removes config files; the pip-mirror bridge
+             # (pm.index_config) reaches uv as env vars. The pinned runtime
+             # builder asked to be isolated from ambient index configuration:
+diff --git a/pm/index_config.py b/pm/index_config.py
+index d58d677d..e7d75e80 100644
+--- a/pm/index_config.py
++++ b/pm/index_config.py
+@@ -24,7 +24,7 @@ import sys
+ FORWARDED_UV_SETTINGS = frozenset({
+     "UV_INDEX_URL", "UV_EXTRA_INDEX_URL", "UV_DEFAULT_INDEX", "UV_INDEX", "UV_NO_INDEX",
+     "UV_FIND_LINKS", "UV_INDEX_STRATEGY", "UV_KEYRING_PROVIDER",
+-    "UV_NATIVE_TLS", "UV_INSECURE_HOST", "UV_HTTP_TIMEOUT",
++    "UV_NATIVE_TLS", "UV_SYSTEM_CERTS", "UV_INSECURE_HOST", "UV_HTTP_TIMEOUT",
+ })
+ 
+ _UV_INDEX_KNOBS = ("UV_INDEX_URL", "UV_DEFAULT_INDEX", "UV_INDEX")

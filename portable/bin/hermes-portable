@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# Hermes Portable maintenance CLI. On PATH in every portable session; from
+# outside one, run it through the bundled Git Bash or Hermes-Shell.cmd:
+#   Hermes-Shell.cmd hermes-portable doctor
+set -u
+
+if [ "${HP_SCRUBBED:-}" != 1 ] || [ -z "${HP_PAYLOAD_U:-}" ]; then
+  exec /usr/bin/bash --noprofile --norc "$(cd "$(dirname "$0")/../lib" && pwd)/run.sh" "$0" "$@"
+fi
+# shellcheck source=../lib/config.sh
+. "$HP_ROOT_U/portable/lib/config.sh"
+
+usage() {
+  cat <<'EOF'
+hermes-portable COMMAND
+
+  sources status [--check]         where each lock file downloads from (original / mirror)
+  sources pypi use-nexus [opts]    switch uv.lock to HP_PYPI_INDEX_URL (see --help)
+  sources pypi use-original        restore the original uv.lock
+  sources npm use-nexus [opts]     switch package-lock.json files to HP_NPM_REGISTRY
+  sources npm use-original         restore the original package-lock.json files
+  sources verify                   prove names/versions/hashes match the originals
+  doctor [--prune [--yes]]         check tools, settings, lock sources and connectivity
+  env                              show the effective portable settings (secrets masked)
+  version                          show the build manifest (VERSION.txt)
+  stop                             stop the background Hermes gateway
+EOF
+}
+
+sources() {
+  "$HP_PYTHON_U" -I "$HP_ROOT_U/portable/python/hp_sources.py" \
+    --root "$(cygpath -w "$HP_PAYLOAD_U/hermes-agent")" "$@"
+}
+
+mask() {
+  local key=$1 value=$2
+  case ${key^^} in
+    *KEY*|*TOKEN*|*SECRET*|*PASSWORD*|*AUTH*) value='********' ;;
+  esac
+  # user:password@host -> user:***@host
+  printf '%s\n' "$value" | sed -E 's#(://[^:/@]+):[^@/]+@#\1:***@#g'
+}
+
+cmd_env() {
+  printf '[portable.env]\n'
+  local key value
+  while IFS=$'\t' read -r key value; do
+    printf '  %s=%s\n' "$key" "$(mask "$key" "$value")"
+  done < <(hp_config_each "$(hp_config_file)")
+  printf '\n[derived]\n'
+  for key in HP_ROOT HERMES_HOME USERPROFILE HERMES_MANAGED_DIR HERMES_GIT_BASH_PATH \
+             UV_DEFAULT_INDEX UV_INDEX npm_config_registry HTTP_PROXY HTTPS_PROXY NO_PROXY \
+             UV_SYSTEM_CERTS NODE_USE_SYSTEM_CA SSL_CERT_FILE NODE_EXTRA_CA_CERTS UV_INSECURE_HOST \
+             NODE_TLS_REJECT_UNAUTHORIZED GIT_SSL_NO_VERIFY HERMES_ARTIFACT_MIRROR \
+             HERMES_DISABLE_LAZY_INSTALLS HF_ENDPOINT; do
+    [ -n "${!key:-}" ] && printf '  %s=%s\n' "$key" "$(mask "$key" "${!key}")"
+  done
+  local i
+  for ((i = 0; i < ${GIT_CONFIG_COUNT:-0}; i++)); do
+    key="GIT_CONFIG_KEY_$i"; value="GIT_CONFIG_VALUE_$i"
+    printf '  git %s=%s\n' "${!key}" "$(mask "${!key}" "${!value}")"
+  done
+  return 0
+}
+
+cmd_doctor() {
+  local problems=0 tool path
+  printf '== Hermes Portable\n'
+  sed 's/^/  /' "$HP_ROOT_U/VERSION.txt" 2>/dev/null || printf '  (VERSION.txt missing)\n'
+
+  printf '\n== bundled tools\n'
+  for tool in hermes.exe node npm uv git rg ffmpeg bash; do
+    path=$(command -v "$tool" 2>/dev/null || true)
+    if [ -z "$path" ]; then
+      printf '  MISSING %s\n' "$tool"; problems=$((problems + 1))
+    elif [[ $path == "$HP_ROOT_U"/* || ( $tool == bash && $path == /usr/bin/bash ) ]]; then
+      printf '  OK      %-10s %s\n' "$tool" "$path"
+    else
+      printf '  FOREIGN %-10s %s (not from the portable folder)\n' "$tool" "$path"
+      problems=$((problems + 1))
+    fi
+  done
+  if hermes --version > /dev/null 2>&1; then
+    printf '  OK      hermes --version: %s\n' "$(hermes --version 2>&1 | head -n1)"
+  else
+    printf '  FAIL    hermes --version\n'; problems=$((problems + 1))
+  fi
+  [ -e "$HP_PAYLOAD_U/tools" ] && compgen -G "$HP_PAYLOAD_U/tools/cua-driver*" > /dev/null \
+    && { printf '  FAIL    cua-driver is present in the payload\n'; problems=$((problems + 1)); }
+
+  printf '\n== data\n'
+  if touch "$HP_DATA_U/.write-test" 2>/dev/null && rm -f "$HP_DATA_U/.write-test"; then
+    printf '  OK      %s is writable\n' "$(cygpath -w "$HP_DATA_U")"
+  else
+    printf '  FAIL    %s is not writable\n' "$(cygpath -w "$HP_DATA_U")"; problems=$((problems + 1))
+  fi
+
+  printf '\n== package sources\n'
+  sources status --check | sed 's/^/  /' || problems=$((problems + 1))
+
+  printf '\n== connectivity (through the configured proxy / TLS settings)\n'
+  local urls=("${HP_PYPI_INDEX_URL:-https://pypi.org/simple}/pip/" "${HP_NPM_REGISTRY:-https://registry.npmjs.org/}")
+  sources check-url "${urls[@]}" | sed 's/^/  /' || problems=$((problems + 1))
+
+  if [ "${1:-}" = --prune ]; then
+    shift
+    prune_installs "${1:-}"
+  fi
+  printf '\n%s\n' "$([ "$problems" -eq 0 ] && echo 'doctor: no problems found' || echo "doctor: $problems problem(s)")"
+  [ "$problems" -eq 0 ]
+}
+
+# The folder moved: PM keys per-install state by the absolute repo path, so the
+# old keys under data/hermes/installs are orphaned.
+prune_installs() {
+  local current dir
+  current=$("$HP_PYTHON_U" -I -c 'import hashlib,sys; from pathlib import Path; print(hashlib.sha256(str(Path(sys.argv[1]).resolve()).encode()).hexdigest()[:16])' \
+    "$(cygpath -w "$HP_PAYLOAD_U/hermes-agent")")
+  printf '\n== stale install state (current key %s)\n' "$current"
+  for dir in "$HP_DATA_U"/hermes/installs/*/; do
+    [ -d "$dir" ] || continue
+    [ "$(basename "$dir")" = "$current" ] && continue
+    if [ "${1:-}" = --yes ]; then
+      rm -rf "$dir" && printf '  removed %s\n' "$dir"
+    else
+      printf '  stale   %s (rerun with --prune --yes to remove)\n' "$dir"
+    fi
+  done
+}
+
+cmd=${1:-help}
+[ $# -gt 0 ] && shift
+case $cmd in
+  sources) sources "$@" ;;
+  doctor) cmd_doctor "$@" ;;
+  env) cmd_env ;;
+  version) cat "$HP_ROOT_U/VERSION.txt" ;;
+  stop) hermes gateway stop --all --yes ;;
+  help|-h|--help) usage ;;
+  *) usage >&2; exit 2 ;;
+esac

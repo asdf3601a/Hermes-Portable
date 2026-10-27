@@ -1,0 +1,12 @@
+# Build outputs and caches
+/.build/
+/.cache/
+/build/build.env
+
+# Local portable test configuration
+/portable/config/portable.env
+/portable/paths.sh
+/portable/paths.cmd
+
+__pycache__/
+*.pyc

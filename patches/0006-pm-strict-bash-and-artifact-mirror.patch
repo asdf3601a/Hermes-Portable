@@ -1,0 +1,44 @@
+Hermes Portable: strict bundled Git Bash and an operator artifact mirror.
+
+pm/shell.py: with HERMES_GIT_BASH_ONLY=1, bash() only returns the staged
+PortableGit bash or HERMES_GIT_BASH_PATH. A slow first start (antivirus scan)
+no longer falls back to a system Git for Windows or a bash on PATH.
+
+pm/artifact_mirror.py: HERMES_ARTIFACT_MIRROR names an operator mirror of
+https://hermes-assets.nousresearch.com (for example a Nexus raw proxy
+repository). PM tries <mirror>/upstream/sha256/<sha256> first, then the
+locked upstream URL, then the public archive. Every source is still verified
+against the locked sha256, so a closed-network build or lazy install can
+fetch Python, Node, PortableGit, Chromium, ffmpeg and friends from Nexus.
+
+diff --git a/pm/artifact_mirror.py b/pm/artifact_mirror.py
+index 3d3030b8..b673b719 100644
+--- a/pm/artifact_mirror.py
++++ b/pm/artifact_mirror.py
+@@ -29,4 +29,10 @@ def pinned_source(url: str, dest: Path, sha256: str) -> Source:
+     archive = mirror_url(sha256)
+     # The lock records registry.npmjs.org; a user's npm mirror serves the same pinned bytes (#123132).
+     url = npm_registry_url(url, os.environ)
++    # HERMES_ARTIFACT_MIRROR: an operator mirror of the origin above (e.g. a Nexus raw
++    # proxy) tried first, so closed networks never wait on unreachable upstream hosts.
++    operator = os.environ.get("HERMES_ARTIFACT_MIRROR", "").strip().rstrip("/")
++    if operator:
++        local = f"{operator}/{object_key(sha256)}"
++        return Source(local, dest, sha256, fallbacks=tuple(dict.fromkeys(u for u in (url, archive) if u != local)))
+     return Source(url, dest, sha256, fallbacks=() if url == archive else (archive,))
+diff --git a/pm/shell.py b/pm/shell.py
+index 9219aeb1..84047336 100644
+--- a/pm/shell.py
++++ b/pm/shell.py
+@@ -108,6 +108,11 @@ def bash() -> str | None:
+     staged = _staged_bash()
+     if staged and _bash_starts(staged):
+         return staged
++    if os.environ.get("HERMES_GIT_BASH_ONLY", "").strip().lower() in ("1", "true", "yes"):
++        # Hermes Portable: only the bundled Git Bash, even when its startup probe
++        # times out (antivirus scans); never fall back to a system Git.
++        own = [c for c in (staged, os.environ.get("HERMES_GIT_BASH_PATH")) if c and os.path.isfile(c)]
++        return next((c for c in own if _bash_starts(c)), own[0] if own else None)
+ 
+     on_path = shutil.which("bash")
+     if os.name == "nt":

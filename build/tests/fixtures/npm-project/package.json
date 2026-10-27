@@ -1,0 +1,10 @@
+{
+  "name": "hp-npm-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Fixture for the source-switch smoke test (npm ci against a local registry mirror).",
+  "dependencies": {
+    "@isaacs/string-locale-compare": "1.1.0",
+    "ms": "2.1.3"
+  }
+}

@@ -1,0 +1,37 @@
+# Hermes Portable interactive shell: bash --rcfile portable/lib/bashrc -i
+# (started by Hermes-TUI.cmd / Hermes-Shell.cmd in a Windows console window).
+
+if [ "${HP_SCRUBBED:-}" != 1 ]; then
+  # shellcheck source=scrub.sh
+  . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scrub.sh"
+  hp_reexec_clean /usr/bin/bash --rcfile "${BASH_SOURCE[0]}" -i
+fi
+
+# Standard Git Bash setup (MINGW64 paths, prompt, git-prompt) ...
+# shellcheck source=/dev/null
+. /etc/profile
+# ... without winpty aliases: this is a real console, native programs need none.
+unalias node npm npx python python3 2>/dev/null
+
+# shellcheck source=env.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/env.sh" || return
+
+cd "$HP_START_U" 2>/dev/null || cd "$HOME" || true
+HISTFILE="$HP_DATA_U/home/.bash_history"
+
+printf '\n  Hermes Portable %s\n' "$(sed -n 's/^portable=//p' "$HP_ROOT_U/VERSION.txt" 2>/dev/null)"
+printf '  hermes            classic CLI\n'
+printf '  hermes --tui      terminal UI\n'
+printf '  hermes-portable   sources | doctor | env | version | stop\n\n'
+
+if [ -n "${HP_AUTORUN:-}" ]; then
+  read -r -a hp_autorun <<< "$HP_AUTORUN"
+  unset HP_AUTORUN
+  "${hp_autorun[@]}"
+  hp_status=$?
+  unset hp_autorun
+  if hp_truthy "${HP_EXIT_AFTER_AUTORUN:-0}"; then
+    exit "$hp_status"
+  fi
+  printf '\n(%s exited with %s; type "exit" to close this window)\n' "hermes" "$hp_status"
+fi

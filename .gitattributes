@@ -1,0 +1,16 @@
+# Shell scripts must keep LF for Git Bash; Windows batch files need CRLF.
+* text=auto eol=lf
+*.sh text eol=lf
+*.py text eol=lf
+*.patch text eol=lf -diff
+*.md text eol=lf
+*.yml text eol=lf
+*.conf text eol=lf
+*.example text eol=lf
+*.txt text eol=lf
+*.pth text eol=lf
+portable/lib/bashrc text eol=lf
+portable/bin/hermes-portable text eol=lf
+*.cmd text eol=crlf
+*.lock text eol=lf
+package-lock.json text eol=lf

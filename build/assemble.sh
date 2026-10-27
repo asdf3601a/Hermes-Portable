@@ -85,7 +85,21 @@ done
 cp "$HP_REPO/docs/THIRD-PARTY-NOTICES.md" "$dist/licenses/"
 
 # --- release hygiene -----------------------------------------------------------------
-bad=$(find "$dist" \( -type l -o -name .git \) -print | head -n5)
-[ -z "$bad" ] || die "symlinks/junctions or .git entries in the folder:\n$bad"
+# NTFS reparse points (symlinks, junctions) cannot travel in a zip. Not `find -type l`:
+# MSYS also lists Cygwin-style system-attribute link files such as PortableGit's
+# etc/mtab (made by its post-install), which Windows, PM's tree digest and 7-Zip
+# all treat as ordinary files.
+bad=$("${PY[@]}" -I -c '
+import os, stat, sys
+def walk(top):
+    for entry in os.scandir(top):
+        attrs = entry.stat(follow_symlinks=False).st_file_attributes
+        if entry.name == ".git" or attrs & stat.FILE_ATTRIBUTE_REPARSE_POINT:
+            print(entry.path)
+        elif entry.is_dir(follow_symlinks=False):
+            walk(entry.path)
+walk(sys.argv[1])
+' "$(cygpath -w "$dist")")
+[ -z "$bad" ] || die "symlinks/junctions or .git entries in the folder:"$'\n'"$(printf '%s\n' "$bad" | head -n5)"
 compgen -G "$payload/tools/cua-driver*" > /dev/null && die "cua-driver must not be in the payload"
 log "assembled $(du -sh "$dist" | cut -f1)"

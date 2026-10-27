@@ -73,14 +73,9 @@ Hermes-TUI.cmd / Hermes-Shell.cmd / Hermes-Desktop.cmd
 
 ## 2. 本機建置
 
-需求：
+完整步驟（環境需求、系統設定、Proxy／Nexus／封閉網路、冒煙測試注意事項、疑難排解）見 [BUILD.md](BUILD.md)。摘要：
 
-- Windows 10/11 x64
-- Git for Windows（使用它的 Git Bash 執行建置）
-- Python 3.11 以上（建議 3.13，用來執行上游的打包腳本）
-- 7-Zip（`C:\Program Files\7-Zip\7z.exe` 或在 PATH 中）
-- 約 25 GB 可用空間
-- 啟用長路徑：`git config --global core.longpaths true`
+- Windows 10/11 x64、Git for Windows（在 Git Bash 執行）、Python 3.11 以上、7-Zip、約 30 GB 可用空間、啟用長路徑。
 
 ```bash
 git clone --recurse-submodules <本 repo> C:/hp && cd C:/hp
@@ -89,10 +84,7 @@ bash build/build.sh all                      # 或分步：patch prepare package
 ```
 
 - 產物在 `$HP_BUILD_DIR/dist/`（預設 `.build/dist/`），包含資料夾、zip、`.sha256`、`VERSION.txt`。
-- `HP_BUILD_DIR` 請放在短路徑，例如 `C:\hpb`。
 - 可以只重跑部分步驟。例如只改了 `portable/` 時，執行 `bash build/build.sh assemble smoke zip`。
-- prepare 會重用 `$HP_DESKTOP_CACHE`（預設 `.build/desktop-inputs`）中已驗證的下載。
-- `HP_BUILD_PYTHON` 可以指定 Python，例如 `py -3.13`。
 
 ## 3. CI（`.github/workflows/build.yml`）
 
@@ -203,6 +195,8 @@ git reset -q --hard && git apply --check ../patches/*.patch
 - raw proxy：`https://github.com/electron-userland/electron-builder-binaries/releases/download/`
 
 uv.lock 中的 git 來源（misaki）只屬於 kittentts，而打包不含 kittentts，所以不需要連 GitHub。
+
+不使用 CI、直接在公司內的電腦上建置時，見 [BUILD.md](BUILD.md) 第 4 節（內部 Git 鏡像）與第 7 節。
 
 self-hosted runner：
 

@@ -42,7 +42,7 @@ Hermes-Portable/
    - 複製 Portable 層與文件
    - 產生 `portable/paths.sh` / `paths.cmd`（PortableGit、Python、node… 的實際路徑）、`VERSION.txt`、`licenses/`
 5. **smoke**：在發行資料夾的副本上跑測試（第 8 節）。
-6. **zip**：檢查最長路徑不超過 `MAX_REL_PATH`，以 7-Zip 壓成 Deflate zip，檢查大小不超過 `MAX_ZIP_BYTES`（GitHub Release 單檔上限 2 GiB），產生 `.sha256`。
+6. **zip**：檢查最長路徑不超過 `MAX_REL_PATH`（235；259 減去它就是使用者解壓資料夾的長度上限，超過時列出最長的 15 個路徑；assemble 已先刪除超過上限的預編譯 `.pyc`，Python 會改在記憶體中編譯那些模組），以 7-Zip 壓成 Deflate zip，檢查大小不超過 `MAX_ZIP_BYTES`（GitHub Release 單檔上限 2 GiB），產生 `.sha256`。
 
 上游使用 commit build 而不是 tag build，因為 tag build 需要上游內部的 release claim tag。commit build 會讓 Desktop 的更新機制成為 `external`，也就是不會自我更新。副作用是 Desktop 的 exe 檔名會帶上 7 碼 SHA，啟動檔透過 `paths.cmd` 找到它。
 
@@ -232,7 +232,7 @@ self-hosted runner：
 | mirror | Nexus 格式本機鏡像 + 黑洞 Proxy：discover 切換、`uv sync --frozen`、`npm ci`、verify |
 | tls | 私有 CA 的 HTTPS 鏡像：預設拒絕；`HP_SSL_CA_FILE` 與 `HP_SSL_INSECURE` 下 uv、curl、node、httpx、requests、來源切換都要成功 |
 | desktop | 啟動 Desktop（盡力而為：代管 runner 的桌面環境有限）、不寫入 `HKCU\Software\Classes\hermes` |
-| relocate | 關閉長路徑支援後，把資料夾搬到含空白與中文的路徑，重跑主要檢查 |
+| relocate | 關閉長路徑支援後，把資料夾搬到含空白與中文的短路徑，重跑主要檢查，並確認路徑最長的 payload 原始檔仍讀得到 |
 
 ## 9. 發版前手動檢查（需要真實桌面）
 

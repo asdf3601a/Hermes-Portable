@@ -124,11 +124,13 @@ cmd_zip() {
   group "zip"
   local folder="${DIST_DIR_PREFIX}-$PORTABLE_VERSION"
   local zip="$BUILD_DIR/dist/${DIST_NAME}-${PORTABLE_VERSION}-win-x64.zip"
-  local longest
-  longest=$(cd "$BUILD_DIR/dist" && find "$folder" -print | awk '{ if (length($0) > max) { max = length($0); path = $0 } } END { print max "\t" path }')
-  log "longest path in the zip: $longest"
-  [ "${longest%%$'\t'*}" -le "${MAX_REL_PATH:-200}" ] \
-    || die "a path is longer than MAX_REL_PATH=${MAX_REL_PATH}; extraction would hit MAX_PATH"
+  local over
+  over=$(cd "$BUILD_DIR/dist" && find "$folder" -print | awk -v max="${MAX_REL_PATH:?}" 'length($0) > max { print length($0) "\t" $0 }' | sort -rn)
+  log "$(grep '^longest_path=\|^max_extract_folder_chars=' "$BUILD_DIR/dist/$folder/VERSION.txt" | tr '\n' ' ')"
+  if [ -n "$over" ]; then
+    printf '%s\n' "$over" | head -n 15 >&2
+    die "$(printf '%s\n' "$over" | wc -l) path(s) longer than MAX_REL_PATH=$MAX_REL_PATH; extraction would hit MAX_PATH"
+  fi
   rm -f "$zip" "$zip.sha256"
   local sevenzip
   sevenzip=$(command -v 7z || command -v 7z.exe || printf '%s' "/c/Program Files/7-Zip/7z.exe")

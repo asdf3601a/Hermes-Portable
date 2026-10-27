@@ -225,7 +225,10 @@ if ! skip relocate; then
     reg.exe add 'HKLM\SYSTEM\CurrentControlSet\Control\FileSystem' //v LongPathsEnabled //t REG_DWORD //d 0 //f > /dev/null \
       && log "LongPathsEnabled=0"
   fi
-  moved="$WORK/測試 路徑"
+  # Short on purpose: the long-path check below needs a folder within VERSION.txt's
+  # max_extract_folder_chars, like a user's C:\HP.
+  moved="$BUILD_DIR/測試 路徑"
+  rm -rf "$moved"
   mkdir -p "$moved"
   if mv "$DIST" "$moved/"; then
     DIST="$moved/$(basename "$SRC")"
@@ -237,6 +240,21 @@ if ! skip relocate; then
     foreign=$(printf '%s\n' "$tools" | grep -v "^$dist_unix/" || true)
     [ -z "$foreign" ] && pass "relocated: tools resolve inside the folder" || fail "relocated tools: $foreign"
     check "relocated: sources status" prun hermes-portable sources status
+    # Without long-path support, the longest payload source must still be readable from
+    # a folder within the documented limit (its .pyc may have been dropped by assemble).
+    longest_src=$(prun bash -c '"$HP_PYTHON_U" -I -c "
+import os, sys
+site = sys.argv[1]
+path = max((os.path.join(d, f) for d, _, fs in os.walk(site) for f in fs if f.endswith(\".py\")), key=len)
+if len(path) > 259:
+    print(f\"SKIP {len(path)} {path}\"); sys.exit(0)
+compile(open(path, \"rb\").read(), path, \"exec\")
+print(f\"OK {len(path)} {path}\")" "$1"' _ "$(venv_site)" 2>&1 | tail -n1)
+    case $longest_src in
+      OK*) pass "relocated: longest payload source readable without long paths (${longest_src#OK })" ;;
+      SKIP*) soft "long-path check skipped: build folder too deep (${longest_src#SKIP })" ;;
+      *) fail "relocated: longest payload source not readable: $longest_src" ;;
+    esac
   else
     fail "could not move the folder (files in use?)"
   fi

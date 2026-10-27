@@ -24,6 +24,15 @@ if ! hp_truthy "${INCLUDE_UV_CACHE:-0}"; then
   rm -rf "$payload/uv-cache"
 fi
 
+# Baked bytecode beyond MAX_REL_PATH could not be opened once the zip is extracted
+# without Windows long-path support. It is an optional cache (never verified at run
+# time; PM's tree digest skips __pycache__): Python compiles those modules in memory.
+top=$(basename "$dist")
+(cd "$dist/.." && find "$top/desktop/resources/agent-payload" -path '*/__pycache__/*.pyc' -print \
+  | awk -v max="${MAX_REL_PATH:?}" 'length($0) > max') > "$BUILD_DIR/dropped-pyc.txt"
+while IFS= read -r rel; do rm -f "$dist/../$rel"; done < "$BUILD_DIR/dropped-pyc.txt"
+log "dropped $(wc -l < "$BUILD_DIR/dropped-pyc.txt") baked .pyc longer than MAX_REL_PATH=$MAX_REL_PATH"
+
 site="$payload/venv/Lib/site-packages"
 [ -d "$site" ] || die "payload venv site-packages not found: $site"
 cp "$HP_REPO/portable/python/hp_sslhook.py" "$HP_REPO/portable/python/zz_hermes_portable.pth" "$site/"
@@ -54,6 +63,9 @@ tool_lines=$("${PY[@]}" -I "$HP_REPO/build/lib/payload_paths.py" "$(cygpath -w "
 log "paths: $(tr '\n' ' ' < "$dist/portable/paths.sh")"
 
 # --- VERSION.txt -------------------------------------------------------------------
+# A full Windows path holds 259 characters: what the longest path leaves is the
+# longest extraction folder (with its trailing backslash) that works everywhere.
+longest=$(cd "$dist/.." && find "$top" -print | awk '{ if (length($0) > max) max = length($0) } END { print max }')
 {
   printf 'portable=%s\n' "$PORTABLE_VERSION"
   printf 'upstream_version=%s\n' "$UPSTREAM_VERSION"
@@ -65,6 +77,8 @@ log "paths: $(tr '\n' ' ' < "$dist/portable/paths.sh")"
   printf 'npm_source=%s\n' "$NPM_SOURCE"
   printf 'bundle_exclude=%s\n' "${BUNDLE_EXCLUDE:-}"
   printf 'uv_cache=%s\n' "$(hp_truthy "${INCLUDE_UV_CACHE:-0}" && echo included || echo dropped)"
+  printf 'longest_path=%s\n' "$longest"
+  printf 'max_extract_folder_chars=%s\n' "$((259 - longest))"
   printf '%s\n' "$tool_lines"
 } > "$dist/VERSION.txt"
 cat "$dist/VERSION.txt"

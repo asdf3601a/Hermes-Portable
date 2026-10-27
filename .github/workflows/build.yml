@@ -60,13 +60,13 @@ jobs:
     steps:
       - name: Enable long paths
         run: git config --global core.longpaths true
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v10.3.2
       - name: Patches apply to the pinned upstream
         run: git -C upstream apply --check "$PWD"/patches/*.patch
       - name: shellcheck
@@ -136,11 +136,11 @@ jobs:
           git config --global core.longpaths true
           df -h "$GITHUB_WORKSPACE" "$RUNNER_TEMP" || true
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           submodules: true
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
 
@@ -191,7 +191,7 @@ jobs:
           [ "v$version" = "$GITHUB_REF_NAME" ] \
             || { echo "::error::tag $GITHUB_REF_NAME does not match build v$version (build/bundle.conf)"; exit 1; }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: hermes-portable-win-x64
           path: |
@@ -210,7 +210,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: hermes-portable-win-x64
           path: dist

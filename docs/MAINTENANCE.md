@@ -206,6 +206,7 @@ uv.lock 中的 git 來源（misaki）只屬於 kittentts，而打包不含 kitte
 self-hosted runner：
 
 - Windows x64，安裝 Git for Windows、7-Zip，Python 由 `actions/setup-python` 安裝。
+- runner 版本需 2.327.1 以上：工作流程使用的 actions 都是 Node 24 版本。
 - 約 30 GB 可用空間，並啟用長路徑（`LongPathsEnabled=1`）。
 - 用 `runner` 輸入指定它的 label。
 - 建置產物會帶有 `.upstream` 原始鎖定檔，`VERSION.txt` 會記錄 `pypi_source` / `npm_source`。

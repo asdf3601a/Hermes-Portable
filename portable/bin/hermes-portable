@@ -28,7 +28,7 @@ EOF
 }
 
 sources() {
-  "$HP_PYTHON_U" -I "$HP_ROOT_U/portable/python/hp_sources.py" \
+  "$HP_PYTHON_U" -I -X utf8 "$HP_ROOT_U/portable/python/hp_sources.py" \
     --root "$(cygpath -w "$HP_PAYLOAD_U/hermes-agent")" "$@"
 }
 

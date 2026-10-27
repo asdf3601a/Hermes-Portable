@@ -68,7 +68,7 @@ fi
 
 # Everything from here runs through the portable launchers: none of it may write to
 # the real profile (checked in group 8).
-"${PY[@]}" -I "$TESTS/profile_watch.py" mark "$(cygpath -w "$WORK/profile.stamp")"
+"${PY[@]}" -I -X utf8 "$TESTS/profile_watch.py" mark "$(cygpath -w "$WORK/profile.stamp")"
 
 # --- 2. launchers and environment isolation -----------------------------------------
 log "2. launchers and isolation"
@@ -142,7 +142,7 @@ fixtures() {
 }
 sources_fx() {  # sources_fx pypi|npm HP_SOURCES_ARGS...: hp_sources on a fixture project
   local project=$1; shift
-  prun bash -c '"$HP_PYTHON_U" -I "$HP_ROOT_U/portable/python/hp_sources.py" --root "$1" "${@:2}"' _ \
+  prun bash -c '"$HP_PYTHON_U" -I -X utf8 "$HP_ROOT_U/portable/python/hp_sources.py" --root "$1" "${@:2}"' _ \
     "$(cygpath -w "$WORK/fx/$project-project")" "$@"
 }
 if ! skip mirror; then
@@ -242,14 +242,16 @@ if ! skip relocate; then
     check "relocated: sources status" prun hermes-portable sources status
     # Without long-path support, the longest payload source must still be readable from
     # a folder within the documented limit (its .pyc may have been dropped by assemble).
+    # Output stays ASCII: the folder name is not, the path inside site-packages is.
     longest_src=$(prun bash -c '"$HP_PYTHON_U" -I -c "
 import os, sys
 site = sys.argv[1]
 path = max((os.path.join(d, f) for d, _, fs in os.walk(site) for f in fs if f.endswith(\".py\")), key=len)
+where = f\"{len(path)} chars, site-packages/{os.path.relpath(path, site)}\"
 if len(path) > 259:
-    print(f\"SKIP {len(path)} {path}\"); sys.exit(0)
+    print(\"SKIP\", where); sys.exit(0)
 compile(open(path, \"rb\").read(), path, \"exec\")
-print(f\"OK {len(path)} {path}\")" "$1"' _ "$(venv_site)" 2>&1 | tail -n1)
+print(\"OK\", where)" "$1"' _ "$(venv_site)" 2>&1 | tail -n1)
     case $longest_src in
       OK*) pass "relocated: longest payload source readable without long paths (${longest_src#OK })" ;;
       SKIP*) soft "long-path check skipped: build folder too deep (${longest_src#SKIP })" ;;
@@ -263,7 +265,7 @@ fi
 # --- 8. nothing written to the real profile -------------------------------------------
 log "8. real profile untouched"
 prun hermes gateway stop --all --yes > /dev/null 2>&1
-"${PY[@]}" -I "$TESTS/profile_watch.py" report "$(cygpath -w "$WORK/profile.stamp")" \
+"${PY[@]}" -I -X utf8 "$TESTS/profile_watch.py" report "$(cygpath -w "$WORK/profile.stamp")" \
   --exclude "$(cygpath -w "$BUILD_DIR")" --exclude "$(cygpath -w "$HP_REPO")" \
   "${USERPROFILE:-}" "${APPDATA:-}" "${LOCALAPPDATA:-}" > "$WORK/profile.log" 2>&1
 if grep -q '^HARD ' "$WORK/profile.log"; then

@@ -36,7 +36,7 @@
 | `APPDATA`、`LOCALAPPDATA` | `data\home\AppData\Roaming`、`data\home\AppData\Local` |
 | `HERMES_DESKTOP_USER_DATA_DIR` | `data\desktop`（Electron 使用者資料） |
 | `GIT_CONFIG_GLOBAL` | `data\home\.gitconfig` |
-| `npm_config_cache`、`HF_HOME` | `data\cache\npm`、`data\cache\hf` |
+| `npm_config_cache`、`HF_HOME`、`NODE_COMPILE_CACHE` | `data\cache\npm`、`data\cache\hf`、`data\cache\node-compile` |
 | `HERMES_MANAGED_DIR` | `portable\managed` |
 | `HERMES_GIT_BASH_ONLY`、`HERMES_GIT_BASH_PATH` | 只使用內建 Git Bash |
 | `HERMES_DESKTOP_SKIP_PROTOCOL_REGISTRATION` | `1`（不在登錄檔註冊 `hermes://`） |
@@ -51,7 +51,7 @@
 
 - **`%TEMP%`**：保留系統的暫存資料夾（白名單中的 `TEMP`／`TMP`）。工具的暫存檔會留在這裡，但這些不是設定檔。
 - **起始目錄**：Shell、TUI 與 Desktop 預設從你真正的使用者資料夾開始（`HP_START_DIR` 可改）。Hermes 在你指定的專案中工作時當然會寫入那裡。
-- **Windows 自己的紀錄**：登錄檔 hive（`NTUSER.DAT`）、`AppData\Local\Microsoft\` 底下的快取、Direct3D 著色器快取（`AppData\Local\D3DSCache`），以及程式當機時的 `AppData\Local\CrashDumps`。這些由 Windows 寫入，不受環境變數影響。
+- **Windows 自己的紀錄**：登錄檔 hive（`NTUSER.DAT`）、`AppData\Local\Microsoft\` 底下的快取、Windows 拼字檢查服務的字典（`AppData\Roaming\Microsoft\Spelling`，Desktop 的拼字檢查使用它）、Direct3D 著色器快取（`AppData\Local\D3DSCache`），以及程式當機時的 `AppData\Local\CrashDumps`。這些由 Windows 寫入，不受環境變數影響。
 
 會改變登錄檔的 `hermes://` 協定註冊已經關閉（見上表）。Electron 以 Windows Known Folder API 取得 `%APPDATA%`，不看環境變數；patch 0007 避免它在真正的 `%APPDATA%` 建立資料夾。
 

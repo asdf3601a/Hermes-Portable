@@ -33,7 +33,8 @@ LIMIT = 40
 
 
 def norm(path: str) -> str:
-    return os.path.normcase(os.path.abspath(path)).rstrip("\\") + "\\"
+    # realpath expands 8.3 short names: hosted runners set TEMP=C:\Users\RUNNER~1\...
+    return os.path.normcase(os.path.realpath(path)).rstrip("\\") + "\\"
 
 
 def walk(top: str, since: float, excluded: tuple[str, ...], found: dict[str, str]) -> None:

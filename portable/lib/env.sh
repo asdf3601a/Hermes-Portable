@@ -24,7 +24,7 @@ HP_DESKTOP_EXE_U="$HP_ROOT_U/$HP_DESKTOP_EXE_REL"
 HP_DATA_U=$(hp_data_unix)
 export HP_ROOT HP_ROOT_U HP_PAYLOAD_U HP_GIT_U HP_PYTHON_U HP_DESKTOP_EXE_U HP_DATA_U
 
-mkdir -p "$HP_DATA_U"/{hermes,home/AppData/Roaming,home/AppData/Local,desktop,cache/npm,cache/hf,logs,state}
+mkdir -p "$HP_DATA_U"/{hermes,home/AppData/Roaming,home/AppData/Local,desktop,cache/npm,cache/hf,cache/node-compile,logs,state}
 
 # --- data locations -------------------------------------------------------------
 export HERMES_HOME="$(cygpath -w "$HP_DATA_U/hermes")"
@@ -35,6 +35,8 @@ export LOCALAPPDATA="$(cygpath -w "$HP_DATA_U/home/AppData/Local")"
 export HERMES_DESKTOP_USER_DATA_DIR="$(cygpath -w "$HP_DATA_U/desktop")"
 export npm_config_cache="$(cygpath -w "$HP_DATA_U/cache/npm")"
 export HF_HOME="$(cygpath -w "$HP_DATA_U/cache/hf")"
+# Node keeps its module compile cache in the system %TEMP% unless told otherwise.
+export NODE_COMPILE_CACHE="$(cygpath -w "$HP_DATA_U/cache/node-compile")"
 export GIT_CONFIG_GLOBAL="$(cygpath -w "$HP_DATA_U/home/.gitconfig")"
 if [ ! -f "$HP_DATA_U/home/.gitconfig" ]; then
   printf '[core]\n\tlongpaths = true\n' > "$HP_DATA_U/home/.gitconfig"
